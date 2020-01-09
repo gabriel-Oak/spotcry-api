@@ -1,30 +1,52 @@
-const express = require('express'); // Express web server framework
-const request = require('request'); // "Request" library
-const cors = require('cors');
-const querystring = require('querystring');
-const cookieParser = require('cookie-parser');
+/**
+ * This is an example of a basic node.js script that performs
+ * the Authorization Code oAuth2 flow to authenticate against
+ * the Spotify Accounts.
+ *
+ * For more information, read
+ * https://developer.spotify.com/web-api/authorization-guide/#authorization_code_flow
+ */
 
-const client_id = '0ce8fd4d755e41178c34a2c57813e023'; // Your client id
-const client_secret = 'db945b7d1ed84d1cab8de989391569d9'; // Your secret
-const redirect_uri = 'https://spotcry-api.herokuapp.com/callback'; // Your redirect uri
+var express = require('express'); // Express web server framework
+var request = require('request'); // "Request" library
+var cors = require('cors');
+var querystring = require('querystring');
+var cookieParser = require('cookie-parser');
 
-const clients = {};
+var client_id = '0ce8fd4d755e41178c34a2c57813e023'; // Your client id
+var client_secret = 'db945b7d1ed84d1cab8de989391569d9'; // Your secret
+var redirect_uri = 'https://spotcry-api.herokuapp.com/callback'; // Your redirect uri
 
-const stateKey = 'spotify_auth_state';
+/**
+ * Generates a random string containing numbers and letters
+ * @param  {number} length The length of the string
+ * @return {string} The generated string
+ */
+var generateRandomString = function(length) {
+  var text = '';
+  var possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
-const app = express();
+  for (var i = 0; i < length; i++) {
+    text += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return text;
+};
 
-app.use(cors())
-  .use(cookieParser());
+var stateKey = 'spotify_auth_state';
 
-app.get('/login/:id', function (req, res) {
-  console.log(req.params.id);
+var app = express();
 
-  const state = req.params.id;
+app.use(express.static(__dirname + '/public'))
+   .use(cors())
+   .use(cookieParser());
+
+app.get('/login', function(req, res) {
+
+  var state = generateRandomString(16);
   res.cookie(stateKey, state);
 
   // your application requests authorization
-  const scope = 'user-read-private user-read-email';
+  var scope = 'user-read-private user-read-email';
   res.redirect('https://accounts.spotify.com/authorize?' +
     querystring.stringify({
       response_type: 'code',
@@ -35,22 +57,23 @@ app.get('/login/:id', function (req, res) {
     }));
 });
 
-app.get('/callback', function (req, res) {
+app.get('/callback', function(req, res) {
 
   // your application requests refresh and access tokens
   // after checking the state parameter
 
-  const code = req.query.code || null;
-  const state = req.query.state || null;
+  var code = req.query.code || null;
+  var state = req.query.state || null;
+  var storedState = req.cookies ? req.cookies[stateKey] : null;
 
-  if (state === null) {
+  if (state === null || state !== storedState) {
     res.redirect('/#' +
       querystring.stringify({
         error: 'state_mismatch'
       }));
   } else {
     res.clearCookie(stateKey);
-    const authOptions = {
+    var authOptions = {
       url: 'https://accounts.spotify.com/api/token',
       form: {
         code: code,
@@ -63,83 +86,62 @@ app.get('/callback', function (req, res) {
       json: true
     };
 
-    request.post(authOptions, function (error, response, body) {
+    request.post(authOptions, function(error, response, body) {
       if (!error && response.statusCode === 200) {
 
-        const access_token = body.access_token;
-        const refresh_token = body.refresh_token;
+        var access_token = body.access_token,
+            refresh_token = body.refresh_token;
 
-        const options = {
+        var options = {
           url: 'https://api.spotify.com/v1/me',
           headers: { 'Authorization': 'Bearer ' + access_token },
           json: true
         };
 
         // use the access token to access the Spotify Web API
-        request.get(options, function (error, response, body) {
-
-          clients[state].emit('credentials', {
-            ...body,
-            tokens: {
-              access_token,
-              refresh_token
-            }
-          });
-
-          res.send({
-            access_token,
-            refresh_token
-          });
+        request.get(options, function(error, response, body) {
+          console.log(body);
         });
-      } else {
-        console.log(response.statusCode, 'erro');
 
+        // we can also pass the token to the browser to make requests from there
         res.redirect('/#' +
           querystring.stringify({
-            error
-          })
-        );
+            access_token: access_token,
+            refresh_token: refresh_token
+          }));
+      } else {
+        res.redirect('/#' +
+          querystring.stringify({
+            error: 'invalid_token'
+          }));
       }
     });
   }
 });
 
-app.get('/refresh/', function (req, res) {
+app.get('/refresh_token', function(req, res) {
 
   // requesting access token from refresh token
-  const { authorization } = req.headers;
-  const authOptions = {
+  var refresh_token = req.query.refresh_token;
+  var authOptions = {
     url: 'https://accounts.spotify.com/api/token',
     headers: { 'Authorization': 'Basic ' + (new Buffer(client_id + ':' + client_secret).toString('base64')) },
     form: {
       grant_type: 'refresh_token',
-      refresh_token: authorization
+      refresh_token: refresh_token
     },
     json: true
   };
 
-  request.post(authOptions, function (error, response, body) {
+  request.post(authOptions, function(error, response, body) {
     if (!error && response.statusCode === 200) {
-      const access_token = body.access_token;
+      var access_token = body.access_token;
       res.send({
         'access_token': access_token
       });
-    } else {
-      res.status(response.statusCode).send({ message: 'error' });
     }
   });
 });
 
-const server = require('http').createServer(app);
-const io = require('socket.io')(server);
-
-io.on('connection', socket => {
-  socket.emit('connected', 'Successfuly connected');
-  socket.on('disconnect', () => {
-    clients[socket.id] = undefined;
-  });
-
-  clients[socket.id] = socket;
-});
-
-server.listen(3000);
+console.log('Listening on 3000');
+app.listen(3000);

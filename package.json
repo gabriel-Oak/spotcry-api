@@ -4,7 +4,7 @@
   "main": "index.js",
   "repository": "https://github.com/gabriel-Oak/spotcry-api.git",
   "scripts": {
-    "start": "node ./index"
+    "start": "node ./index.js"
   },
   "author": "gabriel-oak",
   "license": "MIT",

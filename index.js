@@ -6,12 +6,13 @@ const cookieParser = require('cookie-parser');
 
 const client_id = '0ce8fd4d755e41178c34a2c57813e023'; // Your client id
 const client_secret = 'db945b7d1ed84d1cab8de989391569d9'; // Your secret
-const redirect_uri = 'http://localhost:3000/callback'; // Your redirect uri
+const redirect_uri = 'https://spotcry-api.herokuapp.com/callback'; // Your redirect uri
 
+const clients = {};
 
-var stateKey = 'spotify_auth_state';
+const stateKey = 'spotify_auth_state';
 
-var app = express();
+const app = express();
 
 app.use(cors())
   .use(cookieParser());
@@ -19,11 +20,11 @@ app.use(cors())
 app.get('/login/:id', function (req, res) {
   console.log(req.params.id);
 
-  var state = req.params.id;
+  const state = req.params.id;
   res.cookie(stateKey, state);
 
   // your application requests authorization
-  var scope = 'user-read-private user-read-email';
+  const scope = 'user-read-private user-read-email';
   res.redirect('https://accounts.spotify.com/authorize?' +
     querystring.stringify({
       response_type: 'code',
@@ -39,18 +40,17 @@ app.get('/callback', function (req, res) {
   // your application requests refresh and access tokens
   // after checking the state parameter
 
-  var code = req.query.code || null;
-  var state = req.query.state || null;
-  var storedState = req.cookies ? req.cookies[stateKey] : null;
+  const code = req.query.code || null;
+  const state = req.query.state || null;
 
-  if (state === null || state !== storedState) {
+  if (state === null) {
     res.redirect('/#' +
       querystring.stringify({
         error: 'state_mismatch'
       }));
   } else {
     res.clearCookie(stateKey);
-    var authOptions = {
+    const authOptions = {
       url: 'https://accounts.spotify.com/api/token',
       form: {
         code: code,
@@ -66,10 +66,10 @@ app.get('/callback', function (req, res) {
     request.post(authOptions, function (error, response, body) {
       if (!error && response.statusCode === 200) {
 
-        var access_token = body.access_token,
-          refresh_token = body.refresh_token;
+        const access_token = body.access_token;
+        const refresh_token = body.refresh_token;
 
-        var options = {
+        const options = {
           url: 'https://api.spotify.com/v1/me',
           headers: { 'Authorization': 'Bearer ' + access_token },
           json: true
@@ -77,33 +77,55 @@ app.get('/callback', function (req, res) {
 
         // use the access token to access the Spotify Web API
         request.get(options, function (error, response, body) {
-          console.log(body, state);
+
+          clients[state].emit('credentials', {
+            ...body,
+            tokens: {
+              access_token,
+              refresh_token
+            }
+          });
+
+          res.send({
+            access_token,
+            refresh_token
+          });
         });
+      } else {
+        console.log(response.statusCode, 'erro');
+
+        res.redirect('/#' +
+          querystring.stringify({
+            error
+          })
+        );
       }
     });
   }
 });
 
-app.get('/refresh_token', function (req, res) {
+app.get('/refresh/', function (req, res) {
 
   // requesting access token from refresh token
-  var refresh_token = req.query.refresh_token;
-  var authOptions = {
+  const { authorization } = req.headers;
+  const authOptions = {
     url: 'https://accounts.spotify.com/api/token',
     headers: { 'Authorization': 'Basic ' + (new Buffer(client_id + ':' + client_secret).toString('base64')) },
     form: {
       grant_type: 'refresh_token',
-      refresh_token: refresh_token
+      refresh_token: authorization
     },
     json: true
   };
 
   request.post(authOptions, function (error, response, body) {
     if (!error && response.statusCode === 200) {
-      var access_token = body.access_token;
+      const access_token = body.access_token;
       res.send({
         'access_token': access_token
       });
+    } else {
+      res.status(response.statusCode).send({ message: 'error' });
     }
   });
 });
@@ -113,10 +135,11 @@ const io = require('socket.io')(server);
 
 io.on('connection', socket => {
   socket.emit('connected', 'Successfuly connected');
-
-  socket.on(' ', data => {
-    console.log(data);
+  socket.on('disconnect', () => {
+    clients[socket.id] = undefined;
   });
+
+  clients[socket.id] = socket;
 });
 
 server.listen(3000);

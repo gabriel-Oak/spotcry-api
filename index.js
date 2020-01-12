@@ -93,6 +93,7 @@ app.get('/callback', function (req, res) {
             console.log(e);
           }
         });
+        return res.end();
       } else {
         res.redirect('/#' +
           querystring.stringify({

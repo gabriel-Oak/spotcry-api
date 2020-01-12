@@ -6,7 +6,7 @@ const cookieParser = require('cookie-parser');
 
 const client_id = '0ce8fd4d755e41178c34a2c57813e023'; // Your client id
 const client_secret = 'db945b7d1ed84d1cab8de989391569d9'; // Your secret
-const redirect_uri = 'http://ec2-18-231-166-89.sa-east-1.compute.amazonaws.com/callback'; // Your redirect uri
+const redirect_uri = 'http://ec2-18-231-166-89.sa-east-1.compute.amazonaws.com:3000/callback'; // Your redirect uri
 
 const clients = {};
 

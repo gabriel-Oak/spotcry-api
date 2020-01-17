@@ -83,7 +83,7 @@ app.get('/callback', function (req, res) {
 
           try {
             clients[state].emit('credentials', {
-              ...body,
+              user: { ...body },
               tokens: {
                 access_token,
                 refresh_token
